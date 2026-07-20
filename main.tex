@@ -1,0 +1,1305 @@
+\documentclass[11pt,a4paper]{article}
+
+% -----------------------------------------------------------------------
+% Packages
+% -----------------------------------------------------------------------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{geometry}
+\geometry{margin=2.5cm}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{bm}
+\usepackage[hidelinks]{hyperref}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{setspace}
+\onehalfspacing
+
+\usepackage[backend=biber,
+            style=authoryear,
+            sorting=nyt,
+            maxcitenames=2,
+            maxbibnames=99,
+            giveninits=true,
+            uniquename=init,
+            doi=true,
+            url=false]{biblatex}
+\addbibresource{references.bib}
+
+% -----------------------------------------------------------------------
+% Custom macros
+% -----------------------------------------------------------------------
+\newcommand{\vect}[1]{\boldsymbol{#1}}
+\newcommand{\R}{\mathbb{R}}
+
+% -----------------------------------------------------------------------
+% Meta-data
+% -----------------------------------------------------------------------
+\title{\textbf{Topic Modeling from Latent Semantic Analysis to
+  Large Language Models:\\
+  A Critical Review of Methods and Evaluation Practice}}
+
+\author{%
+  \textit{[Author name(s) to be supplied at submission]}\\[4pt]
+  \textit{[Institutional affiliation(s)]}
+}
+
+\date{\today}
+
+% -----------------------------------------------------------------------
+\begin{document}
+\maketitle
+\begin{abstract}
+Topic modeling has grown from a compact statistical idea—decomposing
+a document collection into latent thematic components—into an active
+cross-disciplinary methodology spanning statistics, machine learning,
+and natural language processing.
+This paper critically surveys the trajectory from Latent Semantic
+Analysis through probabilistic models (pLSA, LDA and its many
+extensions) to neural variational autoencoders, contextualised
+embedding-based methods, and the most recent wave of
+large-language-model (LLM) assisted topic discovery.
+We devote particular attention to evaluation, arguing that the field's
+most persistent and underappreciated problem is not model expressiveness
+but measurement: coherence metrics widely adopted as proxies for
+topic quality are themselves unreliable, and held-out perplexity
+correlates poorly with human interpretability.
+We review stability, reproducibility, software tooling, multilingual
+extensions, applications, and emerging ethical concerns.
+Throughout, we identify where methodological progress has been genuine
+and where it rests on shaky evaluation foundations, and we outline
+open problems that deserve sustained future attention.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{Introduction}
+\label{sec:introduction}
+% =======================================================================
+
+A recurring challenge in text analysis is the need to summarise and
+navigate large document collections without exhaustive manual reading.
+Topic modeling addresses this challenge by positing that documents are
+mixtures of latent themes, and that these themes can be recovered from
+word co-occurrence statistics alone.
+The appeal is immediate: given a corpus of, say, scientific abstracts or
+social-media posts, a topic model returns a human-readable vocabulary
+for the collection's major subjects, together with document-level
+scores indicating how strongly each subject is represented.
+
+The field's intellectual history spans three decades.
+\textcite{deerwester1990indexing} introduced Latent Semantic Analysis
+(LSA), a linear-algebraic technique that exposed latent structure via
+singular value decomposition (SVD).
+\textcite{hofmann1999probabilistic} recast the problem probabilistically
+with pLSA, introducing a proper generative story.
+\textcite{blei2003latent} then added a Bayesian prior over document
+mixtures, yielding Latent Dirichlet Allocation (LDA)---still, more than
+two decades later, the most widely cited topic model.
+Subsequent years brought a rich family of LDA extensions addressing
+temporal dynamics \parencite{blei2006dynamic}, topic correlations
+\parencite{blei2005correlated}, supervision \parencite{blei2007supervised},
+hierarchical structure \parencite{teh2006hierarchical}, short text
+\parencite{yin2014dirichlet}, and multiple languages
+\parencite{mimno2009polylingual}.
+The neural wave, beginning around 2016--2017, replaced conjugate
+Bayesian inference with variational autoencoders
+\parencite{miao2016neural,srivastava2017autoencoding}, enabling more
+flexible parameterisation and scalability.
+Embedding-based models followed, grounding topics directly in
+pre-trained semantic spaces \parencite{dieng2020topic,sia2020tired,
+bianchi2021pretraining,grootendorst2022bertopic}.
+Most recently, large language models have been recruited as topic
+discovery engines, with \textcite{pham2024topicgpt} demonstrating that
+prompting an LLM with document samples can rival or exceed traditional
+models on human-judged coherence.
+
+Despite this proliferation of methods, the evaluation landscape has
+lagged behind.
+The standard metrics---held-out perplexity, automated coherence
+scores---have been shown to be unreliable proxies for what practitioners
+actually want from topic models: interpretable, stable, and actionable
+thematic summaries.
+The human-in-the-loop experiments of \textcite{chang2009reading}
+established early on that lower perplexity does not imply better human
+interpretability.
+Subsequent work on coherence metrics
+\parencite{newman2010automatic,lau2014machine,roder2015exploring}
+brought automation to evaluation, but later studies showed these metrics
+can be gamed and that their correlation with human judgment is weaker
+than assumed \parencite{hoyle2021automated,doogan2021twaddle}.
+Neural topic models raise further concerns: \textcite{hoyle2022broken}
+argue that many neural models are ``broken'' in the sense that their
+topic word lists are less meaningful than those of classical LDA despite
+superior coherence scores.
+
+This review makes three primary contributions.
+First, it provides a structured synthesis of method families that
+reflects both the logical and historical relationships among them,
+rather than merely cataloguing papers.
+Second, it gives evaluation practice a central and critical role,
+tracing the gap between what is being measured and what practitioners
+need.
+Third, it discusses practical dimensions---tooling, reproducibility,
+multilingual applicability, energy costs, and applications---that are
+often treated as afterthoughts in methodology-focused surveys.
+
+\medskip
+\noindent\textbf{Scope.}\quad
+This review covers peer-reviewed and directly verified work from 1990
+through 2024.
+We include one arXiv preprint (BERTopic; \cite{grootendorst2022bertopic})
+because of its exceptional adoption in applied research, explicitly
+noting its unreviewed status where relevant.
+We do not attempt to cover every downstream application domain; instead
+we use representative case studies to illustrate the breadth of
+deployment.
+
+% =======================================================================
+\section{Foundations}
+\label{sec:foundations}
+% =======================================================================
+
+\subsection{Latent Semantic Analysis}
+\label{sec:lsa}
+
+Latent Semantic Analysis \parencite{deerwester1990indexing} begins with a
+term--document matrix $\mathbf{X} \in \R^{V \times D}$, where $V$ is the
+vocabulary size and $D$ is the number of documents.
+Truncated SVD decomposes $\mathbf{X} \approx \mathbf{U}_{k}
+\mathbf{\Sigma}_{k} \mathbf{V}_{k}^{\top}$, projecting both terms and
+documents into a shared $k$-dimensional semantic space.
+The rank-$k$ approximation captures the dominant variance in word use,
+smoothing over synonymy and polysemy in a way that raw term matching
+cannot.
+
+LSA achieves impressive results in information retrieval and
+document similarity tasks, but it has well-known limitations.
+The latent dimensions are not constrained to be non-negative or
+interpretable; they are algebraic artefacts of the SVD rather than
+meaningful topics.
+Negative entries in factor matrices make direct interpretation
+difficult, as a ``negative loading'' on a dimension has no
+straightforward semantic gloss.
+Furthermore, LSA provides no probabilistic account of document
+generation, making it impossible to assign principled probability
+estimates to held-out data or to perform likelihood-based model
+selection.
+The choice of rank $k$ is also heuristic: practitioners typically try
+values in the range 50--500 and rely on downstream task performance or
+qualitative inspection to guide selection.
+
+Another limitation is that LSA treats all terms as contributing
+equally to the latent space unless TF-IDF weighting is applied prior
+to decomposition.
+Function words and highly frequent terms can dominate the decomposition
+unless they are removed or down-weighted.
+These preprocessing decisions can substantially change the latent
+dimensions recovered, and they interact with the choice of $k$ in
+ways that are difficult to predict.
+Despite these limitations, LSA demonstrated conclusively that latent
+semantic structure could be extracted from large corpora by purely
+statistical means, without any hand-crafted ontology or lexical
+resource, and this insight directly motivated the probabilistic
+reformulations that followed.
+
+\subsection{Probabilistic Latent Semantic Indexing}
+\label{sec:plsa}
+
+\textcite{hofmann1999probabilistic} addressed the probabilistic
+deficiency of LSA by introducing pLSA (also written PLSI).
+The generative story posits a latent topic variable $z \in
+\{1,\ldots,K\}$: a word $w$ in document $d$ is generated by first
+sampling a topic $z \sim P(z|d)$ and then sampling the word from the
+topic-specific distribution $P(w|z)$.
+The parameters $P(z|d)$ and $P(w|z)$ are estimated by expectation
+maximisation (EM), giving a clean probabilistic interpretation.
+
+pLSA improves on LSA in information retrieval benchmarks and provides
+a likelihood score, but it is not a fully generative model of new
+documents: the per-document parameters $P(z|d)$ are fixed to the
+training corpus and do not generalise to unseen texts.
+This is the \emph{train/test disconnect}---the model cannot assign a
+probability to a document outside the training set without additional
+folding-in steps.
+The number of parameters grows linearly with the corpus size,
+$\mathcal{O}(D \cdot K + V \cdot K)$, raising overfitting concerns
+on small corpora and making storage and serialisation unwieldy for
+very large collections.
+Regularisation strategies such as tempered EM were proposed to
+address overfitting, but they do not resolve the fundamental
+generalisation problem.
+
+The train/test disconnect in pLSA is not merely a theoretical concern.
+It means that two independently trained pLSA models on the same corpus
+are not directly comparable: there is no natural alignment of topic
+indices between runs, and no principled way to apply a trained model
+to compute the likelihood of new data.
+These properties make pLSA unsuitable for the growing class of
+applications that require either online processing of new documents or
+quantitative model comparison via held-out likelihood.
+
+\subsection{Latent Dirichlet Allocation}
+\label{sec:lda}
+
+\textcite{blei2003latent} resolved the generalisation problem by placing
+Dirichlet priors over both the per-document topic distributions
+$\vect{\theta}_{d}$ and the per-topic word distributions
+$\vect{\beta}_{k}$.
+The full generative process for LDA is:
+\begin{enumerate}
+  \item For each topic $k = 1, \ldots, K$: draw
+    $\vect{\beta}_{k} \sim \mathrm{Dir}(\vect{\eta})$.
+  \item For each document $d = 1, \ldots, D$:
+    \begin{enumerate}
+      \item Draw $\vect{\theta}_{d} \sim \mathrm{Dir}(\vect{\alpha})$.
+      \item For each word position $n = 1, \ldots, N_{d}$:
+        \begin{enumerate}
+          \item Draw $z_{d,n} \sim \mathrm{Categorical}(\vect{\theta}_{d})$.
+          \item Draw $w_{d,n} \sim \mathrm{Categorical}(\vect{\beta}_{z_{d,n}})$.
+        \end{enumerate}
+    \end{enumerate}
+\end{enumerate}
+The Dirichlet prior over $\vect{\theta}_{d}$ enables the model to
+assign probabilities to new documents via the predictive distribution
+$p(\mathbf{w}|\vect{\alpha},\vect{\beta})$, solving the train/test
+disconnect.
+
+Posterior inference in LDA is intractable in closed form because the
+document-topic distribution $\vect{\theta}_{d}$ and the topic
+assignments $z_{d,n}$ are coupled through the observation $w_{d,n}$.
+The original paper \parencite{blei2003latent} employed mean-field
+variational EM, which introduces a fully-factored variational distribution
+$q(\vect{\theta},\mathbf{z})$ and optimises its parameters to minimise
+the KL divergence from the true posterior.
+\textcite{griffiths2004finding} introduced collapsed Gibbs sampling as
+an alternative: by integrating out $\vect{\theta}_{d}$ and $\vect{\beta}_{k}$
+analytically, the sampler operates only over the topic assignment
+variables $z_{d,n}$, yielding simpler update equations and stronger
+mixing in practice.
+Collapsed Gibbs sampling became the dominant inference strategy for LDA
+and remains the reference implementation in tools such as MALLET.
+More recent work explored stochastic variational inference
+\parencite{blei2012probabilistic}, enabling online processing of
+streaming corpora that do not fit in memory.
+
+\textcite{blei2012probabilistic} provides an accessible tutorial
+covering LDA and its probabilistic semantics for a broad audience;
+it remains the most widely cited entry point for practitioners new to
+probabilistic topic models.
+
+LDA treats the $K$ topics as a priori independent and exchangeable,
+and it assumes the bag-of-words representation: word order and syntax
+are discarded.
+These simplifications are strong but not always damaging;
+for many corpus-level analyses the loss of sequential information
+matters less than the ability to summarise tens of thousands of
+documents cheaply and interpretably.
+The hyperparameter $\vect{\alpha}$ controls topic sparsity in
+documents: small symmetric $\alpha$ encourages documents to be
+concentrated on few topics, while large $\alpha$ pushes documents
+toward uniform mixtures.
+Similarly, $\vect{\eta}$ controls sparsity in topic-word distributions.
+Empirically, asymmetric priors---particularly a peaked prior over
+the topic distribution---often yield more stable and interpretable
+topics than the symmetric defaults, a finding with practical
+implications for deployment \parencite{koltcov2014lda}.
+
+The appropriate number of topics $K$ must be chosen by the analyst,
+typically via grid search over held-out likelihood or coherence, a
+pragmatic but imperfect procedure.
+No single criterion for choosing $K$ has proven universally reliable:
+the value that maximises held-out perplexity often differs from the
+value that maximises human-judged coherence, and both may differ from
+the value that is most useful for a downstream task.
+This $K$-selection problem has motivated nonparametric alternatives
+(Section~\ref{sec:hdp}) but remains unsolved even for practitioners
+who prefer parametric models.
+
+% =======================================================================
+\section{Extensions to Latent Dirichlet Allocation}
+\label{sec:lda-extensions}
+% =======================================================================
+
+The success of LDA prompted a wave of extensions addressing its
+structural assumptions.
+We organise these by the dimension of variation they introduce.
+
+\subsection{Topic Correlation: the Correlated Topic Model}
+\label{sec:ctm}
+
+LDA's Dirichlet prior imposes negative correlations between topic
+proportions: documents heavy on one topic tend to be lighter on
+others, a consequence of the Dirichlet's simplicial geometry.
+\textcite{blei2005correlated} replaced the Dirichlet with a logistic
+normal distribution, yielding the Correlated Topic Model (CTM).
+The logistic normal can capture positive topic correlations
+(\emph{politics} and \emph{economics} may co-occur) as well as
+negative ones.
+The trade-off is computational: the logistic normal does not have
+Dirichlet-conjugate conditional distributions, so Gibbs sampling is
+not straightforward and variational inference requires a further
+approximation layer.
+On scientific corpora the CTM reliably discovers meaningful topical
+correlations, but the gains over LDA in downstream retrieval tasks are
+often modest.
+
+\subsection{Temporal Dynamics: Dynamic Topic Models}
+\label{sec:dtm}
+
+Document collections often span time, and topics evolve.
+\textcite{blei2006dynamic} introduced Dynamic Topic Models (DTM) by
+placing a linear Gaussian state-space model over sequential topic
+word distributions: the topic $\vect{\beta}_{k,t}$ at time slice $t$
+is a Gaussian perturbation of the topic at $t-1$.
+This allows a historian to trace, for instance, how the vocabulary
+associated with the topic \emph{artificial intelligence} shifted from
+the 1950s through the 2010s.
+The DTM has been applied to scientific literature, news archives, and
+congressional records.
+The principal limitation is scalability: exact inference is intractable,
+and the variational approximation is substantially more involved than
+standard LDA inference.
+
+\subsection{Nonparametric Approaches: Hierarchical Dirichlet Processes}
+\label{sec:hdp}
+
+Both LDA and DTM require the analyst to specify $K$.
+\textcite{teh2006hierarchical} proposed the Hierarchical Dirichlet
+Process (HDP), a nonparametric Bayesian model in which $K$ is inferred
+from data.
+The HDP places a Dirichlet Process prior over a global measure that
+is shared across documents; each document's topic distribution is
+a draw from a document-level DP that is centred on the global measure.
+In practice, the effective number of topics grows logarithmically
+with corpus size, providing automatic complexity regularisation.
+HDP inference is considerably more complex than LDA inference and
+convergence can be slow; moreover, the number of inferred topics is
+sensitive to hyperparameter settings, so the claim of fully automatic
+topic number selection should be tempered.
+
+\subsection{Supervised Topic Models}
+\label{sec:slda}
+
+\textcite{blei2007supervised} introduced Supervised LDA (sLDA) by
+adding a response variable $y_{d}$---a rating, label, or continuous
+outcome---that is modelled as a function of the document's topic
+proportions $\vect{\theta}_{d}$.
+Supervised inference encourages the model to discover topics that are
+predictive of the outcome, yielding more task-relevant thematic
+summaries than unsupervised LDA when labelled data are available.
+A complementary approach, Labeled LDA \parencite{ramage2009labeled},
+restricts each document's topic prior to the subset of topics
+corresponding to its observed labels, providing a finer-grained credit
+attribution mechanism in multi-label settings such as web-page
+categorisation.
+
+\subsection{Short-Text and Sparse Settings}
+\label{sec:shorttext}
+
+Standard LDA assumes documents contain enough words for reliable
+estimation of $\vect{\theta}_{d}$; tweets, titles, and product reviews
+often contain fewer than thirty tokens.
+\textcite{yin2014dirichlet} addressed this with the Dirichlet
+Multinomial Mixture (DMM) model, which assigns each short document to
+a single topic rather than a mixture, reducing the effective number of
+latent variables per document.
+On several benchmark short-text clustering tasks, DMM outperforms LDA
+by a wide margin while remaining interpretable.
+The single-topic assumption is strong and fails for longer, heterogeneous
+documents, so DMM is best understood as a specialised rather than a
+universal replacement for LDA.
+
+\subsection{Multilingual Topic Models}
+\label{sec:multilingual}
+
+Standard LDA operates over a fixed vocabulary in a single language.
+\textcite{mimno2009polylingual} extended LDA to aligned multilingual
+corpora---parallel or comparable documents in multiple languages---by
+assuming that aligned documents share the same topic distribution
+$\vect{\theta}_{d}$ but each language maintains its own topic-word
+distribution.
+This allows topics to be inferred jointly from, for example, English
+and Chinese text, with the semantic coherence of the shared topic
+serving as a cross-lingual anchor.
+More recent work \parencite{bianchi2021crosslingual} incorporates
+contextualised multilingual embeddings (e.g.\ mBERT, XLM-R) as
+document representations, enabling zero-shot topic inference in
+languages for which no parallel training data are available.
+We return to cross-lingual approaches in Section~\ref{sec:contextualized}.
+
+% =======================================================================
+\section{Neural and Embedding-Based Topic Models}
+\label{sec:neural}
+% =======================================================================
+
+The deep-learning revolution brought two major shifts to topic modeling:
+(i) replacing conjugate Bayesian inference with amortised variational
+autoencoders, and (ii) replacing bag-of-words representations with
+dense semantic embeddings from pre-trained language models.
+
+\subsection{Neural Variational Document Models}
+\label{sec:nvdm}
+
+\textcite{miao2016neural} introduced the Neural Variational Document
+Model (NVDM), which encodes a document's term frequency vector through
+a neural network into a Gaussian latent code, then decodes that code
+into word probabilities.
+The encoder--decoder architecture is trained end-to-end via the
+Evidence Lower Bound (ELBO) of variational inference.
+NVDM was an important proof of concept: it demonstrated that topic-like
+representations could be learned without explicit Dirichlet priors or
+Gibbs sampling.
+However, the Gaussian latent space does not enforce the simplex
+structure of topic proportions, and early versions produced less
+coherent topics than well-tuned LDA.
+
+\textcite{srivastava2017autoencoding} addressed this with the
+Autoencoded Variational Inference for Topic Models (AVITM) framework,
+which approximates the Dirichlet distribution using a logistic-normal
+auxiliary variable---a technique sometimes called the Laplace
+approximation to the Dirichlet.
+AVITM introduced the key engineering insight of \emph{reparameterisation}
+through a logistic-normal: by sampling from the Gaussian and passing
+through a softmax, the decoder receives simplex-valued topic proportions
+that closely mirror the Dirichlet.
+Comparisons with LDA on standard benchmarks showed competitive or
+superior coherence and dramatically faster training on GPU hardware.
+The correct OpenReview identifier for this work is \texttt{BybtVK9lg}
+(not the erroneous \texttt{HkwzHslxg} cited in some secondary sources).
+
+\textcite{zhao2021neural} propose a further departure, replacing the
+ELBO with an Optimal Transport (OT) objective.
+Their Neural Sinkhornian Topic Model directly minimises the Wasserstein
+distance between document word distributions and reconstructed topic
+mixtures, learning topic embeddings jointly in the OT cost matrix.
+This formulation is theoretically principled and shows competitive
+results on both coherence and topic diversity metrics, though the OT
+computation introduces additional hyperparameter sensitivity.
+
+\subsection{Embedding-Based Models: Topics as Vectors}
+\label{sec:etm}
+
+\textcite{dieng2020topic} introduced the Embedded Topic Model (ETM),
+which places topics and vocabulary items in the same embedding space
+$\R^{L}$.
+The word distribution for topic $k$ is the softmax of the dot products
+between the topic embedding $\vect{\alpha}_{k} \in \R^{L}$ and all word
+embeddings $\vect{\rho}_{v} \in \R^{L}$:
+\[
+  p(w = v \mid z = k) \propto \exp\bigl(\vect{\rho}_{v}^{\top}
+  \vect{\alpha}_{k}\bigr).
+\]
+The topic and word embeddings can be initialised from pre-trained
+word2vec or GloVe vectors, injecting rich semantic knowledge into the
+model without requiring a separate fine-tuning step.
+ETM achieves better coherence on large vocabularies than standard LDA
+and scales gracefully to corpora with $10^{5}$--$10^{6}$ documents.
+
+\textcite{sia2020tired} take a different perspective, arguing that
+off-the-shelf clustering of pre-trained word embeddings produces topics
+that are fast, competitive in coherence, and transparent---without any
+probabilistic modelling at all.
+Their empirical comparison raises an important question: if simple
+$k$-means over word vectors achieves similar quality to sophisticated
+models, what is the value-add of the additional modelling complexity?
+The honest answer is that it depends on the task.
+Probabilistic models offer principled uncertainty quantification,
+document-level topic scores, and a generative story that supports
+tasks like document retrieval and completion.
+Clustering methods offer speed and simplicity.
+Both have a role, and the choice should be driven by the downstream
+use case.
+
+\subsection{Contextualised and Cross-Lingual Models}
+\label{sec:contextualized}
+
+Pre-trained transformer models such as BERT encode context-sensitive
+word representations, and they can be used to produce document-level
+embeddings that are richer than bag-of-words vectors.
+\textcite{bianchi2021pretraining} demonstrate that substituting BERT
+embeddings for TF-IDF vectors in a neural topic model substantially
+improves topic coherence on standard benchmarks.
+They argue that pre-training effectively provides a strong semantic
+inductive bias that the model would otherwise need to learn from the
+target corpus alone---a significant benefit on small or domain-specific
+corpora.
+
+The cross-lingual extension \parencite{bianchi2021crosslingual} uses
+multilingual pre-trained encoders to project documents in different
+languages into a shared representation space.
+Topics are then inferred in this shared space, and zero-shot transfer
+allows topic models trained on English to be directly applied to
+languages not seen during training.
+Empirical results on English--Italian and English--German corpora show
+substantially better cross-lingual topic alignment than earlier
+dictionary-based or translation-based approaches.
+
+\textcite{grootendorst2022bertopic} presents BERTopic, an applied
+framework that clusters BERT sentence embeddings using HDBSCAN and then
+characterises each cluster with a class-based TF-IDF score.
+BERTopic is a preprint (arXiv:2203.05794) that has not undergone
+formal peer review, yet it has been adopted in numerous applied
+projects due to its ease of use and integration with the
+\texttt{sentence-transformers} ecosystem.
+Its coherence scores on standard benchmarks are competitive with
+AVITM and ETM, but independent evaluations have noted sensitivity
+to HDBSCAN hyperparameters and a tendency to produce one very large
+miscellaneous cluster when the underlying data distribution is diffuse.
+
+% =======================================================================
+\section{LLM-Assisted Topic Discovery}
+\label{sec:llm}
+% =======================================================================
+
+The most recent paradigm shift recruits large language models not as
+representation providers but as direct topic-discovery agents.
+\textcite{pham2024topicgpt} propose TopicGPT, which prompts an
+instruction-tuned LLM (GPT-4 in their experiments) with a small
+sample of documents and asks it to produce a set of topic labels
+together with evidence passages.
+The framework supports iterative refinement: the analyst can provide
+feedback and the model revises its topic assignments accordingly.
+On human evaluation benchmarks, TopicGPT-produced topics are judged
+more coherent and informative than LDA or AVITM baselines in three out
+of four domains tested.
+
+The attractions of LLM-based approaches are considerable: they can
+leverage world knowledge beyond the target corpus, produce
+naturally readable labels without post-hoc aggregation, and adapt
+interactively to analyst needs.
+The framework supports iterative refinement at both the granularity
+level (splitting fine-grained topics or merging redundant ones) and
+the label level (instructing the model to use domain-specific
+terminology), a degree of human-in-the-loop flexibility that
+probabilistic models cannot easily provide.
+
+However, several concerns merit attention.
+First, computational cost is high: querying a proprietary LLM API for
+every document at scale is expensive both financially and in energy
+terms \parencite{strubell2019energy}, whereas LDA inference on a
+million-document corpus can run on a single CPU in hours.
+Second, LLM outputs are not probabilistic in the topic-model sense:
+there are no well-defined $\vect{\theta}_{d}$ vectors that can be
+fed into downstream statistical models.
+This means that LLM-discovered topics are not directly usable as
+features for classification or retrieval without an additional
+assignment step.
+Third, reproducibility is constrained by model versioning and API
+availability; a study using GPT-4 today cannot guarantee the same
+outputs next year, making longitudinal comparisons and exact
+replication impossible in principle.
+Fourth, the evaluation of LLM-topic quality itself reintroduces the
+problems described in Section~\ref{sec:evaluation}: human raters
+have been shown to favour fluent, familiar language irrespective of
+the underlying analytical validity of the topic groupings.
+Topics produced by an LLM may score highly on human coherence tasks
+not because they are analytically meaningful but because they are
+grammatically polished and semantically familiar.
+
+Fifth, the boundaries between what the LLM has learned from
+pre-training data and what it has discovered from the target corpus
+are opaque.
+When TopicGPT produces a topic labelled ``climate policy,'' it is
+unclear how much of that topic reflects genuine signals in the target
+documents versus the LLM's prior associations between related
+concepts.
+This opacity complicates the use of LLM-based topic models in
+interpretive social-science research, where the distinction between
+what the data say and what the analyst's tools assume is critical.
+
+A theoretically sound integration of LLM representations into
+probabilistic topic models remains an open research problem.
+Current approaches are largely pipeline-based---using LLM embeddings
+as inputs to a conventional topic model---rather than architecturally
+unified.
+
+% =======================================================================
+\section{Evaluation: Metrics, Pitfalls, and Recommendations}
+\label{sec:evaluation}
+% =======================================================================
+
+Evaluation is arguably the most intellectually fraught aspect of topic
+modeling.
+We organise the discussion around four families of metrics: (i)
+held-out likelihood, (ii) intrinsic coherence, (iii) human evaluation,
+and (iv) extrinsic/downstream utility.
+
+\subsection{Held-Out Likelihood and Perplexity}
+\label{sec:eval-perplexity}
+
+Held-out perplexity is the canonical probabilistic model-selection
+criterion.
+\textcite{wallach2009evaluation} give an authoritative treatment of how
+to compute held-out log-likelihood for LDA and its extensions, noting
+that naive approaches (computing the marginal likelihood using only the
+training-set parameters) are biased and that correct estimation requires
+either left-to-right sequential Monte Carlo, harmonic mean estimation
+with appropriate care, or AIS.
+Their experiments show that different estimators can give substantially
+different rankings of models, underscoring the need for careful
+implementation.
+
+The fundamental limitation of perplexity as an evaluation criterion was
+demonstrated by \textcite{chang2009reading} through a series of human
+experiments.
+Their \emph{word intrusion} task presents a human judge with the top
+words of a topic plus one intruder word randomly drawn from another
+topic; a high-quality topic should make the intruder easy to detect.
+Their \emph{topic intrusion} task similarly evaluates whether humans
+can identify which topic was \emph{not} used to generate a document.
+Across multiple models and datasets, models with lower perplexity often
+performed \emph{worse} on these human-centered tasks, a striking finding
+that motivated decades of subsequent evaluation research.
+
+\subsection{Automatic Coherence Metrics}
+\label{sec:eval-coherence}
+
+\textcite{newman2010automatic} proposed one of the first automated
+coherence metrics, based on pointwise mutual information (PMI) between
+pairs of top topic words computed over a large reference corpus.
+Topics whose top words co-occur more than chance exhibit higher PMI,
+and such topics tend to be rated more coherent by human judges.
+\textcite{lau2014machine} extended this work by fitting regression
+models to human coherence ratings, finding that normalised PMI (NPMI)
+computed over a Wikipedia reference corpus correlates most strongly
+with human judgments.
+\textcite{roder2015exploring} systematically catalogued a large family
+of coherence measures (UCI, UMass, NPMI, $C_{v}$, $C_{p}$, etc.) and
+found that $C_{v}$ and $C_{NPMI}$ provide the best approximation of
+human judgment across datasets, while UMass---the simplest and most
+computationally efficient measure---correlates least well.
+
+Despite this progress, serious doubts about automated coherence metrics
+have accumulated.
+\textcite{mimno2011optimizing} introduced the UMass coherence measure
+as a fast, corpus-internal alternative, but also showed that directly
+optimising it during inference improves topic quality---raising the
+spectre of optimising the surrogate rather than the underlying
+objective.
+\textcite{hoyle2021automated} conduct a large-scale empirical audit
+and show that standard coherence metrics such as NPMI and $C_{v}$
+are poorly calibrated: models can achieve high coherence scores
+while producing topics that human evaluators judge as nonsensical.
+The correlation between automatic and human scores degrades further
+when the reference corpus for PMI computation differs from the
+target corpus---a common mismatch in practice.
+\textcite{doogan2021twaddle} reach similar conclusions through a
+complementary analysis, arguing that topic coherence as currently
+measured is largely a measure of corpus-frequency effects and generic
+collocations rather than genuine semantic interpretability.
+
+The practical implication is that researchers should report at least
+one human evaluation component alongside any automated coherence
+score.
+Neither metric alone is sufficient.
+
+\subsection{Stability and Reproducibility}
+\label{sec:eval-stability}
+
+A topic model is stable if re-running the same algorithm on the same
+corpus produces essentially the same topics.
+\textcite{koltcov2014lda} document that LDA with collapsed Gibbs
+sampling can exhibit substantial run-to-run variation in topic
+assignments, particularly for the default symmetric Dirichlet prior
+settings.
+They find that topic stability improves with more Gibbs iterations and
+with asymmetric priors, but remains an underreported and underappreciated
+source of variance in empirical comparisons.
+Stability is especially relevant for neural models, where stochastic
+gradient descent and random weight initialisation add further sources
+of variation.
+Standard practice should include reporting variance across multiple
+random seeds, but this is often omitted in papers that report a single
+run.
+
+\subsection{Extrinsic Evaluation and Tooling}
+\label{sec:eval-extrinsic}
+
+Intrinsic metrics measure topic quality in isolation; extrinsic metrics
+evaluate topics in the context of a downstream task---classification,
+retrieval, recommendation, or social-science analysis.
+Extrinsic evaluation is more directly aligned with user goals but
+requires task-specific annotation and makes comparison across papers
+difficult.
+
+\textcite{terragni2021octis} provide OCTIS (Optimizing and Comparing
+Topic models Is Simple), an open-source benchmarking framework that
+standardises training, evaluation, and hyperparameter search for a
+wide range of topic models including LDA, AVITM, CTM, ETM, NMF, and
+others.
+OCTIS reports a battery of coherence, diversity, and classification
+metrics on a common set of preprocessed benchmark corpora (20~Newsgroups,
+BBC News, M10, and others), enabling more systematic comparison than
+ad-hoc per-paper evaluations.
+Topic diversity---the proportion of unique words in the top-$N$ words
+across all topics---is included as a complementary metric to coherence,
+addressing the concern that models may produce high-coherence but highly
+redundant topics.
+OCTIS has become a de-facto standard for neural topic model evaluation
+and is actively maintained.
+
+The findings from OCTIS and related benchmarking studies paint a
+nuanced picture.
+Classical LDA remains a strong baseline: it is hard to beat
+consistently on both coherence and diversity simultaneously.
+Neural models show higher variance across runs and datasets.
+Hyperparameter choices, particularly the number of topics and
+the encoder architecture, have a larger effect on outcome than the
+choice of model family, a finding that has implications for how papers
+should report and ablate their results.
+
+An important caveat about topic diversity is worth highlighting.
+Topic diversity---computed as the fraction of unique top-$N$ words
+across all $K$ topics---is a useful complement to coherence, because
+a model can achieve high per-topic coherence while producing many
+nearly-identical topics that collectively cover only a narrow slice of
+the corpus's thematic range.
+However, diversity is not a goal in itself: a corpus genuinely dominated
+by a single theme should produce low diversity, and penalising such
+a model is unfair.
+As with all single-metric evaluations, diversity scores should be
+interpreted in light of the corpus characteristics and the downstream
+use case.
+
+\subsection{Human Evaluation Best Practices}
+\label{sec:eval-human}
+
+\textcite{chang2009reading} established word intrusion and topic
+intrusion as the reference protocol for human evaluation.
+Both tasks can be implemented as crowd-sourced studies with reasonable
+inter-annotator agreement ($\kappa > 0.6$ in well-controlled settings).
+Their finding that perplexity anticorrelates with human interpretability
+should be treated as a standing reminder: when evaluating a new model,
+always include at least one human-centered task.
+
+The word intrusion task is particularly informative about topic purity:
+a human judge who can consistently identify the randomly injected
+``intruder'' word confirms that the remaining top words form a
+coherent, distinctive cluster.
+Conversely, a topic in which the intruder is invisible to judges is
+one whose words are semantically diffuse or generic.
+
+An important nuance is that coherence and usefulness are not the same.
+Topics judged coherent by crowdworkers may still be uninformative from
+an analytical standpoint if they capture superficial lexical
+associations rather than substantive themes.
+Consider a topic dominated by grammatical function words or generic
+academic vocabulary: it will score poorly on PMI-based coherence but
+may still appear coherent to a non-specialist crowdworker.
+Conversely, a highly domain-specific topic may appear incoherent to
+a general crowdworker who lacks the domain background to recognise
+the semantic relationships.
+Designing evaluation protocols that test \emph{analytical utility}
+rather than mere \emph{word association} remains an open challenge.
+
+The relationship between automatic coherence scores and task utility
+has been studied most directly in classification and retrieval
+settings.
+OCTIS reports classification accuracy (using topic vectors as features)
+alongside coherence, allowing researchers to observe cases where the
+two metrics diverge.
+Such divergences are informative: they reveal that a model producing
+high-coherence topics is not necessarily producing better document
+representations for downstream prediction, reinforcing the case for
+multi-metric evaluation.
+
+% =======================================================================
+\section{Comparative Analysis}
+\label{sec:comparison}
+% =======================================================================
+
+Table~\ref{tab:model-comparison} summarises key properties of the
+major model families reviewed above.
+Across every dimension, no single model dominates all others.
+
+\begin{table}[ht]
+\centering
+\caption{Comparative summary of topic model families. ``Inf.'' =
+  inference algorithm; ``Prob.\ doc.'' = probabilistic document
+  representation; ``Scalability'' = approximate assessment based on
+  reported corpus sizes in original papers.}
+\label{tab:model-comparison}
+\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Model & Inf. & Prob.\ doc. & Interpretability & Scalability \\
+\midrule
+LSA                        & SVD              & No  & Low   & High \\
+pLSA                       & EM               & Yes & Med.  & Med. \\
+LDA                        & Gibbs/Var.       & Yes & High  & High \\
+CTM                        & Var.             & Yes & Med.  & Med. \\
+DTM                        & Var.             & Yes & High  & Low  \\
+HDP                        & Gibbs            & Yes & High  & Med. \\
+sLDA                       & Var.             & Yes & High  & Med. \\
+DMM                        & Gibbs            & Yes & High  & High \\
+NVDM / AVITM               & VAE              & Yes & Med.  & High \\
+ETM                        & VAE              & Yes & High  & High \\
+BERTopic                   & Clustering       & No  & Med.  & High \\
+TopicGPT                   & LLM prompting    & No  & High* & Low  \\
+\bottomrule
+\multicolumn{5}{l}{* Human-judged; not probabilistic.}
+\end{tabular}
+\end{table}
+
+Several cross-cutting observations are worth highlighting:
+
+\paragraph{Flexibility vs.\ interpretability.}
+More flexible models (DTM, CTM, neural VAEs) gain representational
+power at the cost of interpretability and stability.
+The extra parameters can be estimated reliably only with large corpora;
+on small to medium-sized collections (fewer than $\sim$10,000
+documents), simple LDA often produces more consistent topics.
+Practitioners working with limited data are better served by a
+well-tuned LDA with asymmetric priors than by a neural model whose
+variational parameters cannot be reliably estimated from a few thousand
+documents.
+
+\paragraph{Embeddings and pre-training.}
+Pre-trained embeddings provide an effective inductive bias that can
+substitute for corpus size.
+ETM and AVITM with pre-trained word vectors outperform their
+randomly-initialised counterparts, particularly on domain-specific
+corpora where the general vocabulary statistics differ from the target.
+The benefit is most pronounced when the pre-training corpus is
+semantically related to the target domain---medical pre-training helps
+clinical topic models more than general web-text pre-training.
+
+\paragraph{LLM methods and the probability gap.}
+LLM-based approaches such as TopicGPT produce impressively readable
+topics, but the absence of a probabilistic generative model means that
+standard evaluation metrics (perplexity, per-document $\vect{\theta}$)
+are inapplicable.
+They also inherit the substantial energy cost and reproducibility
+limitations of large model inference \parencite{strubell2019energy}.
+Whether LLM-discovered topics are ``better'' in any absolute sense
+depends entirely on what the analyst means by better: if the goal is
+a readable, analyst-curated taxonomy for qualitative analysis, LLMs
+are compelling; if the goal is a set of document-level numeric
+representations for downstream modelling, a probabilistic topic model
+is currently indispensable.
+
+\paragraph{The inference efficiency frontier.}
+Gibbs sampling for LDA scales well to millions of documents via
+sparse implementations, but is serial and slow to parallelize.
+VAE-based models benefit from GPU acceleration and mini-batch training,
+converging orders of magnitude faster on large corpora.
+BERTopic's pipeline---embedding, dimensionality reduction (UMAP),
+clustering (HDBSCAN), topic characterisation (c-TF-IDF)---is
+parallelisable and fast, but its quality is sensitive to a three-way
+hyperparameter interaction (embedding model, UMAP parameters, HDBSCAN
+parameters) that is difficult to tune systematically.
+
+\paragraph{Evaluation as a first-class concern.}
+Across all model families, evaluation practice has consistently lagged
+behind model development.
+Papers routinely report a single automated coherence score without
+stability analysis, human evaluation, or extrinsic benchmarks.
+The evidence from \textcite{hoyle2021automated},
+\textcite{doogan2021twaddle}, and \textcite{hoyle2022broken} suggests
+that this gap is not merely a reporting convenience but can lead to
+substantively misleading conclusions about model quality.
+A model that achieves the highest $C_{v}$ coherence on one dataset may
+rank last on human-judged interpretability on a related dataset;
+without reporting both, neither researcher nor practitioner can know
+which conclusion to trust.
+
+% =======================================================================
+\section{Applications}
+\label{sec:applications}
+% =======================================================================
+
+Topic models have been applied across a wide range of domains.
+We highlight a few illustrative cases to convey the breadth of
+deployment and the practical evaluation considerations that arise.
+
+\paragraph{Social and political science.}
+\textcite{bail2016combining} demonstrate an early integration of topic
+modeling with network analysis to study how advocacy organisations
+stimulate political conversation on social media.
+Topic models identified the thematic content of organisational posts,
+while network centrality measures tracked information diffusion.
+The combination revealed patterns of framing and agenda-setting
+invisible to either method alone.
+This study exemplifies a broader pattern in computational social science:
+topic models serve as a dimensionality-reduction and coding step,
+translating large text corpora into variables that can be entered into
+conventional statistical models.
+For this use case, the most important model property is not raw
+coherence but \emph{construct validity}: do the topics correspond
+to theoretically meaningful categories in the substantive domain?
+No automated metric currently assesses construct validity directly,
+which is why social-science applications frequently supplement
+automated evaluation with expert annotation or qualitative
+topic inspection.
+
+\paragraph{Scientometrics and intellectual history.}
+\textcite{griffiths2004finding} apply LDA to the PNAS corpus and show
+that topic trajectories over decades align closely with the known
+history of scientific discovery, providing a computationally grounded
+approach to the sociology of science.
+DTM has been similarly applied to trace the emergence and decline of
+research themes in physics, computer science, and medicine.
+These temporal applications highlight a requirement often absent in
+benchmark evaluations: the model must produce topics that are stable
+and interpretable not just at a single time point but across a
+temporal sequence, so that year-over-year topic trajectories are
+analytically meaningful rather than artefacts of random variation.
+
+\paragraph{Information retrieval and recommendation.}
+LDA's document-level topic vectors $\vect{\theta}_{d}$ can be used as
+features in retrieval models, yielding document representations that
+generalise beyond exact term match.
+Retrieval using latent topic representations is particularly valuable
+for queries that use different vocabulary than the target documents
+(the synonymy problem that originally motivated LSA).
+The sLDA framework \parencite{blei2007supervised} directly optimises
+topic discovery for prediction of review ratings or document labels,
+making it well-suited to recommendation and classification tasks where
+a response variable is available.
+When evaluation is conducted on a retrieval or classification task,
+the superiority of LDA over bag-of-words representations depends
+strongly on corpus size and the degree of vocabulary mismatch between
+queries and documents; on large corpora with dense vocabulary overlap,
+TF-IDF often remains competitive.
+
+\paragraph{Public health and news analysis.}
+Topic models have been applied to surveillance of social media for
+emerging health crises, monitoring of media coverage of public health
+events, and analysis of patient narratives in clinical records.
+Short-text models such as DMM \parencite{yin2014dirichlet} are
+particularly appropriate for social-media surveillance, where messages
+are short and written in informal language.
+In each of these settings, the primary practical requirement is not
+that the model achieve the highest coherence score on a benchmark
+but that it produce actionable and interpretable summaries for domain
+experts---a reminder that extrinsic and human-centered evaluation
+should drive model choice in applied settings rather than
+performance on standardised benchmarks constructed for a different purpose.
+
+% =======================================================================
+\section{Software, Reproducibility, and Datasets}
+\label{sec:software}
+% =======================================================================
+
+Reproducibility in topic modeling faces at least three challenges:
+stochastic inference, sensitive hyperparameter settings, and the
+absence of standardised preprocessing pipelines.
+Each challenge has received some attention in the literature, but none
+has been fully resolved, and their combination means that replicating
+the numerical results of a typical topic-modeling paper is
+substantially harder than it should be.
+
+\paragraph{Software.}
+MALLET (Machine Learning for Language Toolkit) is the most widely
+used implementation of collapsed Gibbs sampling for LDA and remains a
+reference baseline across the topic modeling literature.
+Its efficient implementation using sparse representations of
+topic-word counts enables processing of corpora with millions of
+documents on a single workstation.
+The Gensim library provides LDA and related models in Python with
+support for online variational inference, enabling incremental training
+on streaming corpora that cannot be loaded into memory at once.
+Gensim also provides implementations of LSA (via SVD) and word2vec,
+making it a convenient single-library environment for experiments that
+span classical and neural approaches.
+
+For neural topic models, there is no equivalent universal toolkit:
+most research papers release standalone PyTorch implementations
+tailored to their specific architecture, with varying degrees of
+documentation and maintenance.
+This fragmentation is a reproducibility concern: it is difficult to
+compare a new model against a full set of baselines when each baseline
+requires a separate codebase with different preprocessing assumptions.
+
+OCTIS \parencite{terragni2021octis} directly addresses this concern by
+providing standardised pipelines for multiple neural and classical
+topic models, reproducible preprocessing, and a unified evaluation
+harness that reports coherence, diversity, and classification metrics
+on common benchmark corpora.
+OCTIS has become a de-facto standard for neural topic model evaluation
+and is actively maintained.
+Its main limitation is coverage: at the time of writing, it does not
+include LLM-based methods such as TopicGPT, reflecting the rapid pace
+of development in this area.
+
+\paragraph{Benchmark datasets.}
+The 20~Newsgroups and BBC~News datasets have become de-facto standard
+evaluation corpora in the topic modeling literature.
+20~Newsgroups contains approximately 20,000 posts across 20 topical
+categories, providing ground-truth labels that can be used for
+extrinsic evaluation of topic purity.
+BBC~News contains about 2,225 articles across five categories.
+Both are available pre-processed through OCTIS.
+The M10 dataset \parencite{terragni2021octis} is a short-text
+benchmark derived from micro-posts, useful for evaluating DMM-style
+models that are designed for sparse documents.
+
+It is important to note that even these ``standard'' datasets are not
+truly standardised: different papers use different tokenisation,
+stop-word lists, vocabulary thresholds, and train/test splits.
+\textcite{terragni2021octis} documented how preprocessing choices
+affect reported coherence by several coherence-score units---enough to
+reverse rankings between models.
+Researchers should be explicit about which version of a dataset they
+use (e.g.\ whether headers and footers are stripped from 20~Newsgroups)
+and the exact preprocessing steps applied, as these choices can
+substantially affect results and comparison validity.
+
+\paragraph{Preprocessing sensitivity.}
+Stop-word removal, stemming/lemmatisation, and vocabulary pruning are
+preprocessing decisions with outsized influence on topic quality.
+Removing too few stop words leaves topics dominated by function words;
+removing too many may strip semantically relevant words.
+Stemming can improve topic coherence by merging inflected forms, but it
+can also conflate genuinely distinct terms (e.g.\ ``mining'' for
+mineral extraction and ``mining'' in data analysis).
+Vocabulary pruning---typically removing terms that appear in fewer than
+$n$ documents or more than $p$\% of documents---controls sparsity and
+vocabulary size, but the thresholds are rarely justified empirically.
+
+A model that achieves high coherence on a heavily preprocessed corpus
+may produce qualitatively different topics on the same corpus with
+different preprocessing.
+Reporting the full preprocessing pipeline is therefore as important
+as reporting model hyperparameters, and benchmarks should standardise
+preprocessing alongside models.
+The OCTIS framework sets a useful precedent here, though extending its
+preprocessing standardisation to non-English corpora remains a gap.
+
+% =======================================================================
+\section{Ethical Dimensions}
+\label{sec:ethics}
+% =======================================================================
+
+\subsection{Fairness and Representation}
+\label{sec:fairness}
+
+Topic models trained on biased corpora inherit and can amplify those
+biases.
+A model trained predominantly on English-language, Western-authored
+text will learn topics that marginalise or misrepresent other cultural
+and linguistic perspectives.
+Pre-trained embedding-based models (ETM, BERTopic) inherit the biases
+of their upstream embeddings, which have been extensively documented
+to encode racial, gender, and socioeconomic stereotypes.
+Cross-lingual topic models \parencite{bianchi2021crosslingual,
+mimno2009polylingual} partially address the language marginalisation
+problem but do not resolve corpus-selection bias.
+Practitioners should audit topic outputs for demographic and cultural
+skew before deploying them in any consequential setting.
+
+\subsection{Privacy}
+\label{sec:privacy}
+
+Topic models trained on private or sensitive text (medical records,
+private messages) can expose individual-level information through
+their topic-word distributions, particularly in small corpora where
+unusual vocabulary items can identify specific authors.
+The standard LDA generative model does not include any privacy
+guarantee; differential privacy mechanisms have been proposed for
+Gibbs-sampled LDA but are not yet standard practice.
+Researchers working with sensitive corpora should consult the
+differential privacy literature before deploying topic models.
+
+\subsection{Energy and Carbon Footprint}
+\label{sec:energy}
+
+\textcite{strubell2019energy} showed that training large neural NLP
+models can require energy equivalent to dozens of transatlantic flights.
+While LDA and other classical topic models are computationally
+inexpensive, the trend toward larger neural models and LLM-based
+topic discovery reintroduces significant energy costs.
+Researchers should report training and inference times, hardware
+specifications, and estimated energy consumption alongside model
+results, following the recommendations of \citeauthor{strubell2019energy}.
+The environmental cost of research infrastructure should be a routine
+part of the methods section, not an optional afterthought.
+
+% =======================================================================
+\section{Research Gaps and Future Directions}
+\label{sec:future}
+% =======================================================================
+
+Our review identifies several open problems that deserve sustained
+attention from the research community.
+
+\paragraph{Evaluation reform.}
+The evidence reviewed in Section~\ref{sec:evaluation} makes a
+compelling case that the field needs standardised, multi-dimensional
+evaluation protocols that combine automated metrics with human
+judgment and downstream task performance.
+The current state is one of fragmentation: coherence metrics vary
+across papers (NPMI, $C_{v}$, UMass, UCI), reference corpora differ,
+preprocessing pipelines are inconsistently reported, and human
+evaluation is rare.
+The OCTIS framework \parencite{terragni2021octis} is a step in this
+direction, but it covers only a subset of existing models and metrics.
+A community-maintained evaluation benchmark---analogous to GLUE in
+sentence-level NLP---would substantially advance the field, provided
+it was designed with domain coverage, language diversity, and
+task-oriented metrics in mind.
+Such a benchmark should include stability metrics (e.g.\ Jaccard
+similarity between topics across random seeds) as first-class citizens,
+not optional additions.
+
+\paragraph{Principled hyperparameter selection.}
+How to choose $K$ (the number of topics) remains an unsolved problem
+despite decades of attention.
+Bayesian approaches (HDP, DP mixtures) automate $K$ selection in
+principle, but their performance is sensitive to hyperparameter
+settings that are themselves difficult to tune.
+Neural topic models add further hyperparameters (encoder depth, latent
+dimensionality, learning rate, warm-up schedule) whose interaction
+with topic quality is poorly understood.
+Practical guidance for practitioners on how to choose and validate
+$K$ and related hyperparameters is sparse and often contradictory.
+A systematic, empirically grounded guide---analogous to Bayesian
+optimisation guidelines in other areas of NLP---would have high
+practical impact.
+
+\paragraph{Stability as a first-class property.}
+Following \textcite{koltcov2014lda}, stability should be routinely
+measured and reported.
+Models that produce high-coherence topics on one random seed but
+qualitatively different topics on another are not reliable analytical
+tools.
+This is especially pressing for neural topic models, where weight
+initialisation, data shuffling, and GPU non-determinism all contribute
+to run-to-run variation.
+Ensemble methods that aggregate topics across multiple runs---
+collapsing near-duplicate topics and averaging document-topic
+representations---are underexplored and could significantly improve
+the reliability of topic-model outputs in practice.
+
+\paragraph{Integration of probabilistic structure with LLMs.}
+Current LLM-based topic discovery methods are largely pipeline-based.
+A unified model that combines the LLM's world knowledge and language
+generation capabilities with a principled probabilistic framework
+would enable the best of both paradigms: coherent, readable topics
+with well-calibrated uncertainty and document-level probability
+estimates.
+One promising research direction is to use an LLM's conditional
+generation as the observation model within a variational
+autoencoder framework, replacing the standard linear decoder with
+a frozen or fine-tuned LLM.
+This would preserve the probabilistic structure needed for downstream
+use while leveraging the LLM's semantic richness.
+
+\paragraph{Cross-lingual and low-resource settings.}
+Despite progress in cross-lingual topic models
+\parencite{bianchi2021crosslingual,mimno2009polylingual}, low-resource
+languages with limited pre-training data remain inadequately served.
+Methods that require less pre-training while still providing
+cross-lingual alignment are needed, as are evaluation benchmarks
+for cross-lingual topic quality that go beyond English-centred metrics.
+
+\paragraph{Long-form and structured documents.}
+Most topic models assume short-to-medium documents.
+For books, legal documents, and multi-section scientific papers,
+hierarchical or segment-aware topic models are more appropriate but
+less well studied.
+The interaction between discourse structure and topic assignment is a
+rich area for future work: a legal brief, for instance, may contain
+an argument section, a factual section, and a precedent section, each
+with different topical emphases that a flat topic model will blend
+together.
+Incorporating structural priors---either from metadata or from
+discourse parsing---into topic models remains an open problem.
+
+\paragraph{Privacy-preserving topic modeling.}
+As topic models are increasingly applied to sensitive text
+(medical records, private communications, legal documents),
+the development of differentially private inference algorithms
+for topic models deserves more attention than it currently receives.
+Existing approaches for differentially private LDA sacrifice either
+accuracy or computational efficiency to a degree that limits
+practical adoption; more efficient mechanisms are needed.
+
+% =======================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% =======================================================================
+
+Topic modeling has matured from a single landmark paper---LDA---into
+a broad and technically sophisticated field.
+The trajectory from LSA through pLSA to Bayesian topic models and
+then to neural variational autoencoders, embedding-based methods,
+and LLM-assisted discovery reflects genuine scientific progress:
+each generation addressed real limitations of its predecessors.
+LSA established the statistical tractability of latent semantic
+decomposition; pLSA added a principled probabilistic generative story;
+LDA resolved the train/test disconnect with a Bayesian prior; neural
+models scaled the framework to high-throughput GPU computation; and
+LLM-based methods brought the richness of world knowledge into the
+topic-discovery loop.
+
+Yet our critical review reveals a persistent and troubling asymmetry:
+the pace of model innovation has consistently outrun the development
+of reliable evaluation methods.
+Coherence metrics that the field treats as standards are poorly
+calibrated against human judgment; stability is underreported;
+extrinsic benchmarks are underused; and the most recent generation
+of LLM-based methods imports the additional problems of cost,
+reproducibility, and lack of probabilistic grounding.
+
+The warnings from \textcite{chang2009reading}---that perplexity
+anticorrelates with interpretability---were absorbed into the field's
+collective knowledge, but the lesson was not generalised: the community
+adopted automatic coherence metrics as replacements for perplexity
+without subjecting those metrics to equal scrutiny.
+The subsequent work of \textcite{hoyle2021automated} and
+\textcite{doogan2021twaddle} shows that automatic coherence metrics are
+themselves flawed proxies, subject to the same category of criticism
+that was levelled at perplexity: they measure something, but not quite
+what we want.
+The lesson to draw is not that evaluation is impossible but that no
+single metric is sufficient.
+
+Progress on evaluation reform is not merely a methodological luxury.
+Without it, the empirical claims that drive the field's development
+rest on a shaky foundation.
+We encourage researchers to adopt multi-dimensional evaluation
+protocols, report stability across random seeds, include human
+evaluation even at small scale, and use standardised benchmarking
+frameworks such as OCTIS \parencite{terragni2021octis}.
+
+Practitioners choosing a topic model for a specific task should be
+guided by three questions.
+First, does the use case require a probabilistic document
+representation (e.g.\ for downstream modelling, retrieval, or
+uncertainty quantification)?
+If so, LLM-based approaches are currently unsuitable.
+Second, is the corpus large enough to support the model's parameter
+count reliably?
+Neural models offer flexibility that comes at the cost of requiring
+larger corpora to achieve stable results; on small corpora, LDA
+remains the most reliable choice.
+Third, is the evaluation criterion aligned with the downstream goal?
+A model chosen to maximise $C_{v}$ coherence may not be the model
+that best serves a classification or retrieval task, and vice versa.
+
+The application landscape---from political science
+\parencite{bail2016combining} to scientometrics
+\parencite{griffiths2004finding} to public health---demonstrates that
+topic models, when used carefully, provide genuine analytical value.
+That value is best secured not by adopting the newest method
+uncritically but by matching method to task, evaluation metric to
+downstream goal, and model complexity to the evidence available in
+the data.
+The critical lens applied in this review is offered in that spirit:
+not to diminish the achievements of the field, but to identify where
+stronger foundations are needed and to provide a roadmap for building
+them.
+
+% =======================================================================
+\printbibliography
+% =======================================================================
+
+\end{document}
